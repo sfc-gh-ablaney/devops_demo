@@ -47,6 +47,6 @@ jobs:
           pip install schemachange
 
           echo "Step 2: Run script"
-          bash src/scripts/run_schemachange.sh
+          bash ./src/scripts/run_schemachange.sh
           
          
