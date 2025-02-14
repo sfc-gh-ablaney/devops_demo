@@ -1,0 +1,10 @@
+{% macro clone_object_begin(object_type, source_object_name, target_object_prefix) -%}
+-- Create -pre Pipeline snapshot for recovery
+CREATE {{object_type}} IF NOT EXISTS {{source_object_name}}_{{target_object_prefix}}
+  CLONE {{source_object_name}};
+
+USE {{object_type}} {{source_object_name}};
+
+EXECUTE IMMEDIATE $$
+BEGIN
+{%- endmacro %}

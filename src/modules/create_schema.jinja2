@@ -1,0 +1,18 @@
+{% from 'modules/provision_access_roles.jinja2' import provision_access_roles%}
+{% macro create_schema(ENV, db, sch, sch_grants) %}
+{% set db_name =  env_var("SCHEMACHANGE_OBJ_PREFIX")  ~ '_' ~ db ~ '_DB'  %}
+{% set sch_name = db_name  ~ '.' ~ sch  %}
+{% set sch_prefix = db_name  ~ '_' ~ sch  %}
+{% set owning_role =  env_var("SCHEMACHANGE_OWNING_ROLE_FINAL")-%}
+use role {{ owning_role }};
+use database {{ db_name }};
+-- creating schema {{ sch_name }}
+create schema if not exists {{ sch_name }} with managed access;
+grant ownership on schema {{ sch_name }} to role {{ owning_role }} revoke current grants;
+-- create access roles for schema {{ sch_name }}
+{{provision_access_roles('schema', sch_name, db_name)}}
+{%- for grantee, grantee_access in sch_grants.items() %}
+-- grant {{grantee}} the {{grantee_access}} role
+grant database role {{ db_name }}.{{ sch_prefix }}_{{grantee_access}}_AR to role {{grantee}};
+{%- endfor %}
+{%- endmacro %}

@@ -1,0 +1,43 @@
+{% from 'modules/create_schema.jinja2' import create_schema%}
+{% macro create_database(ENV, name, custom_properties, schemas, db_grants, sch_grants) %}
+{% set env = '' if env_var("SNOWFLAKE_ENV").upper() in ['NOENV', 'PROD'] else '_' ~ env_var("SNOWFLAKE_ENV").upper()  %}
+{% set env_base_prefix = env_var("SCHEMACHANGE_OBJ_PREFIX") %}
+{% set owning_role = env_var("SCHEMACHANGE_OWNING_ROLE_FINAL") %}
+
+-- create owning role
+create role if not exists {{ owning_role }};
+grant role {{ owning_role }} to role {{ env_var("SCHEMACHANGE_BASE_PREFIX") }}_{{ env_var("SCHEMACHANGE_ROLE") }};
+
+{%- set db_properties ={"data_retention_time_in_days":  env_var("SCHEMACHANGE_DATA_RETENTION_TIME_IN_DAYS") } %}
+{%- for key, val in custom_properties.items() %}
+  {%- set _= db_properties.update({key: val}) %}
+{%- endfor %}
+{% set db_name = env_base_prefix ~ '_' ~ name ~ '_DB' %}
+
+-- creating database {{ db_name }}
+create database if not exists {{ db_name }};
+-- drop public schema
+drop schema if exists {{ db_name }}.public;
+{%- for key, val in db_properties.items() %}
+alter database {{ db_name }} set {{ key }} = {{ val }};
+{%- endfor %}
+
+-- create DB-level database access roles
+create database role if not exists {{ db_name }}.{{ db_name }}_RO_AR;
+grant ownership on database role {{ db_name }}.{{ db_name }}_RO_AR to role {{ owning_role }};
+create database role if not exists {{ db_name }}.{{ db_name }}_RW_AR;
+grant ownership on database role {{ db_name }}.{{ db_name }}_RW_AR to role {{ owning_role }};
+create database role if not exists {{ db_name }}.{{ db_name }}_FULL_AR;
+grant ownership on database role {{ db_name }}.{{ db_name }}_FULL_AR to role {{ owning_role }};
+grant database role {{ db_name }}.{{ db_name }}_RO_AR to database role {{ db_name }}.{{ db_name }}_RW_AR;
+grant database role {{ db_name }}.{{ db_name }}_RW_AR to database role {{ db_name }}.{{ db_name }}_FULL_AR;
+{%- for grantee, grantee_access in db_grants.items() %}
+-- grant {{grantee}} the {{grantee_access}} role
+grant database role {{ db_grants }}_{{grantee_access}}_AR to role {{grantee}};
+{%- endfor %}
+-- grant ownership
+grant ownership on database {{ db_name }} to role {{ owning_role }} revoke current grants;
+{%- for sch in schemas %}
+{{create_schema(ENV, name, sch, sch_grants)}}
+{%- endfor %}
+{%- endmacro %}

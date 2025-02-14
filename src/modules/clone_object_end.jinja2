@@ -1,0 +1,15 @@
+{% macro clone_object_end(object_type, source_object_name, target_object_prefix) -%}
+  -- Drop the pre-pipeline snapshot - no longer needed
+  DROP {{object_type}} IF EXISTS {{source_object_name}}_{{target_object_prefix}};
+
+EXCEPTION
+  WHEN statement_error THEN
+  -- swap out schema with prior snapshot
+     ALTER {{object_type}} {{source_object_name}}
+       SWAP WITH {{source_object_name}}_{{target_object_prefix}};
+  -- Now throw exception
+     RAISE;
+END;
+$$
+;
+{%- endmacro %}

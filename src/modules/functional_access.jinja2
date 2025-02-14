@@ -1,0 +1,48 @@
+{% macro functional_access(access_payload) %}
+--create role if not exists and transfer ownership to the owning role if different from the current role
+{% set env = '' if env_var("SNOWFLAKE_ENV").upper() in ['NOENV', 'PROD'] else '_' ~ env_var("SNOWFLAKE_ENV").upper()  %}
+{% set env_base_prefix = env_var("SCHEMACHANGE_OBJ_PREFIX") %}
+{% set owning_role = env_var("SCHEMACHANGE_OWNING_ROLE_FINAL") %}
+{% set admin_role =  env_var("SCHEMACHANGE_BASE_PREFIX") ~ '_' ~ env_var("SCHEMACHANGE_ROLE") %}
+use role {{ admin_role }};
+{%- for grant_payload in access_payload %} 
+-- create functional role 
+create role if not exists {{ grant_payload["grantee"] }};
+  {%- if owning_role !=  admin_role  %}
+-- grant ownership to owning role if different from current role
+grant ownership on role  {{ grant_payload["grantee"] }} to role {{owning_role}}; 
+grant role  {{ grant_payload["grantee"] }} to role {{owning_role}}; 
+  {%- endif %}
+  {%- for wh_grants in grant_payload["warehouses"] %} 
+{% set wh_name = env_base_prefix ~ '_' ~ wh_grants["name"] ~ '_WH' %}
+{% set wh_acc_role = wh_name ~ '_' ~  wh_grants["privilege"] ~ '_AR' %}
+{% set from_to = "to" %}
+  {%- if wh_grants["action"] in ["revoke"]  %}
+     {% set from_to = "from" %}
+  {%- endif %}
+-- grant warehouse-level access
+{{ wh_grants["action"] }} role {{ wh_acc_role }} {{ from_to }} role {{ grant_payload["grantee"] }};
+  {%- endfor %}
+  {%- for db_grants in grant_payload["databases"] %} 
+{% set db_name = env_base_prefix ~ '_' ~ db_grants["name"] ~ '_DB' %} 
+  {%- if "privilege"  in db_grants %}
+{% set db_acc_role = db_name ~ '.' ~ db_name ~ '_' ~  db_grants["privilege"] ~ '_AR' %}
+{% set from_to = "to" %}
+    {%- if db_grants["action"] in ["revoke"]  %}
+        {% set from_to = "from" %}
+    {%- endif %}
+-- grant database-level access
+{{ db_grants["action"] }} database role {{ db_acc_role }} {{ from_to }} role {{ grant_payload["grantee"] }};
+  {%- endif %}
+    {%- for sch_grants in db_grants["schemas"] %} 
+{% set sch_acc_role = db_name ~ '.' ~ db_name ~ '_' ~ sch_grants["name"] ~ '_' ~  sch_grants["privilege"] ~ '_AR' %}
+{% set from_to = "to" %}
+      {%- if sch_grants["action"] in ["revoke"]  %}
+        {% set from_to = "from" %}
+      {%- endif %}
+-- grant schema-level access
+{{ sch_grants["action"] }} database role {{ sch_acc_role }} {{ from_to }} role {{ grant_payload["grantee"] }};
+    {%- endfor %}
+  {%- endfor %}
+{%- endfor %}
+{%- endmacro %}

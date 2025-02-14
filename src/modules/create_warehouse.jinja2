@@ -1,0 +1,67 @@
+{% from 'modules/provision_access_roles.jinja2' import provision_access_roles%}
+{% macro create_warehouse(ENV, name, custom_properties, wh_grants, rm_grants) %}
+{% set env = '' if env_var("SNOWFLAKE_ENV").upper() in ['NOENV', 'PROD'] else '_' ~ env_var("SNOWFLAKE_ENV").upper()  %}
+{% set env_base_prefix = env_var("SCHEMACHANGE_OBJ_PREFIX") %}
+{% set owning_role = env_var("SCHEMACHANGE_OWNING_ROLE_FINAL") %}
+
+-- create owning role
+create role if not exists {{ owning_role }};
+grant role {{ owning_role }} to role {{ env_var("SCHEMACHANGE_BASE_PREFIX") }}_{{ env_var("SCHEMACHANGE_ROLE") }};
+
+-- default properties
+{%- set wh_properties ={"warehouse_size": "XSMALL",
+                        "warehouse_type": "STANDARD",
+                        'max_cluster_count': 5,
+                        'auto_suspend': 30,
+                        'scaling_policy': "STANDARD" } %}
+{%- set size_abbrev = {"XSMALL" : "XS" ,
+                       "SMALL": "S",
+                       "MEDIUM": "М",
+                       "LARGE": "L",
+                       "XLARGE": "XL",
+                       "2XLARGE": "2XL",
+                       "XXLARGE": "2XL",
+                       "3XLARGE": "3XL",
+                       "XXXLARGE": "3XL",
+                       "4XLARGE": "4XL",
+                       "X4LARGE": "4XL",
+                       "5XLARGE": "5XL",
+                       "X5LARGE": "5XL",
+                       "6XLARGE": "6XL",
+                       "X6LARGE" : "6XL" } %}
+
+-- create resource monitor
+{% set rm_name = env_base_prefix ~ '_WH_RM' %}
+create resource monitor if not exists {{ rm_name }};
+alter resource monitor {{ rm_name }} 
+  SET CREDIT_QUOTA = {{ env_var("SCHEMACHANGE_RM_QUOTA") }}
+      FREQUENCY = {{ env_var ("SCHEMACHANGE_RM_FREQUENCY") }}
+      START_TIMESTAMP = IMMEDIATELY
+      TRIGGERS ON 75 PERCENT DO {{ env_var("SCHEMACHANGE_RM_ACTION") }}
+               ON 100 PERCENT DO {{ env_var("SCHEMACHANGE_RM_ACTION") }}
+               ON 110 PERCENT DO {{ env_var("SCHEMACHANGE_RM_ACTION") }}; 
+grant ownership on resource monitor {{ rm_name }} to role {{ owning_role }} revoke current grants;
+
+{%- set size = size_abbrev[custom_properties["warehouse_size"].upper()] %}
+{% set wh_name = env_base_prefix ~ '_' ~ name ~ '_' ~ size ~ '_WH' %}
+-- creating warehouse {{ wh_name }}
+create warehouse if not exists {{ wh_name }} initially_suspended = true;
+alter warehouse {{ wh_name }} set resource_monitor = {{ rm_name }};
+{%- for key, val in custom_properties.items() %}
+  {%- set _= wh_properties.update({key: val}) %}
+{%- endfor %}
+{%- for key, val in wh_properties.items() %}
+alter warehouse {{ wh_name }} set {{ key }} = {{ val }};
+{%- endfor %}
+grant ownership on warehouse {{ wh_name }} to role {{ owning_role }} revoke current grants;
+-- create access roles
+{{provision_access_roles('warehouse', wh_name, wh_name)}}
+{%- for grantee, grantee_access in wh_grants.items() %}
+-- grant {{grantee}} the {{grantee_access}} role
+grant role {{ wh_name }}_{{grantee_access}}_AR to role {{grantee}};
+{%- endfor %}
+{%- for grantee, grantee_access in rm_grants.items() %}
+-- grant {{grantee}} the {{grantee_access}} role
+grant role {{ wh_name }}_RM_{{grantee_access}}_AR to role {{grantee}};
+{%- endfor %}
+{%- endmacro %}

@@ -1,0 +1,97 @@
+{% macro provision_access_roles(object_type, object_name, parent_object_name) -%}
+{% set fq_name = object_name %}
+{% set fq_prefix = parent_object_name ~ '.' ~ fq_name.replace('.', '_') %} 
+{% set owning_role = env_var("SCHEMACHANGE_OWNING_ROLE_FINAL") %}
+-- change ownership if required and grant owning role to schemachange role
+-- temporarily grant usage on the WH to the owning role to execute the following SQL scripting
+use role {{ env_var( 'SCHEMACHANGE_BASE_PREFIX') }}_{{ env_var('SCHEMACHANGE_ROLE') }} ;
+grant usage on warehouse {{ env_var('SCHEMACHANGE_BASE_PREFIX') }}_{{ env_var('SCHEMACHANGE_WAREHOUSE') }} to role {{ owning_role }};
+EXECUTE IMMEDIATE $$
+BEGIN
+   let my_current_role STRING := current_role();
+   IF (:my_current_role != upper('{{ owning_role }}')) THEN
+     grant ownership on {{ object_type }} {{ object_name }} to role {{ owning_role }} revoke current grants;
+     grant role {{ owning_role }} to role identifier(:my_current_role);
+     return 'Changed owner';
+   END IF;
+   return 'Unchanged owner';
+END;
+$$
+;
+-- revoke usage on the WH 
+-- revoke usage on warehouse {{ env_var('SCHEMACHANGE_BASE_PREFIX') }}_{{ env_var('SCHEMACHANGE_WAREHOUSE') }} from role {{ owning_role }};
+-- schema level access grants
+{%- if object_type in ['schema', 'SCHEMA'] %}
+-- create database roles
+   {%- for acc_lvl in ['RO', 'RW', 'FULL'] %} 
+-- create role
+create database role if not exists {{ fq_prefix }}_{{ acc_lvl }}_AR; 
+grant ownership on database role {{ fq_prefix }}_{{ acc_lvl }}_AR to role {{ owning_role }} revoke current grants;
+   {% endfor %}
+
+-- create RBAC AR hierarchy - schema-level
+grant database role {{ fq_prefix }}_RO_AR to database role {{ fq_prefix }}_RW_AR; 
+grant database role {{ fq_prefix }}_RW_AR to database role {{ fq_prefix }}_FULL_AR; 
+grant database role {{ fq_prefix }}_FULL_AR to role {{ owning_role }};
+
+-- create RBAC AR hierarchy - schema-database level
+grant database role {{ fq_prefix }}_RO_AR to database role {{ parent_object_name }}.{{ parent_object_name }}_RO_AR;
+grant database role {{ fq_prefix }}_RW_AR to database role {{ parent_object_name }}.{{ parent_object_name }}_RW_AR;
+grant database role {{ fq_prefix }}_FULL_AR to database role {{ parent_object_name }}.{{ parent_object_name }}_FULL_AR;
+
+   {%- for grant_direction in ['all','future'] %}
+--grant RO access - all and future
+grant select, references on {{ grant_direction }} tables in {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_RO_AR; 
+grant select, references on {{ grant_direction }} views in {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_RO_AR; 
+grant select, references on {{ grant_direction }} materialized views in {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_RO_AR; 
+grant usage, read on {{ grant_direction }} stages in {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_RO_AR; 
+grant usage on {{ grant_direction }} file formats in {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_RO_AR; 
+grant select on {{ grant_direction }} streams in {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_RO_AR; 
+grant usage on {{ grant_direction }} functions in {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_RO_AR;
+
+--grant RW access - all and future
+grant insert, update, delete, truncate on {{ grant_direction }} tables in {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_RW_AR; 
+grant read, write on {{ grant_direction }} stages in {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_RW_AR; 
+grant usage on {{ grant_direction }} sequences in {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_RW_AR; 
+grant usage on {{ grant_direction }} procedures in {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_RW_AR; 
+grant monitor, operate on {{ grant_direction }} tasks in {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_RW_AR; 
+   {% endfor %}
+
+--grant FULL access 
+grant create table on {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_FULL_AR; 
+grant create view on {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_FULL_AR; 
+grant create materialized view on {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_FULL_AR; 
+grant create dynamic table on {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_FULL_AR; 
+grant create stage on {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_FULL_AR; 
+grant create procedure on {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_FULL_AR; 
+grant create function on {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_FULL_AR; 
+grant create sequence on {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_FULL_AR; 
+grant create file format on {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_FULL_AR; 
+grant create stream on {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_FULL_AR; 
+grant create task on {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_FULL_AR; 
+grant create tag on {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_FULL_AR; 
+grant create session policy on {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_FULL_AR; 
+grant create row access policy on {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_FULL_AR; 
+grant create masking policy  on {{ object_type }} {{ fq_name }} to database role {{ fq_prefix }}_FULL_AR; 
+
+{%- endif %}
+{%- if object_type in ['warehouse', 'WAREHOUSE'] %}
+-- warehouse level access grants
+   {%- for acc_lvl in ['USG', 'CTRL', 'FULL'] %} 
+-- create role
+create role if not exists {{ object_name }}_{{ acc_lvl }}_AR; 
+grant ownership on role {{ object_name }}_{{ acc_lvl }}_AR to role {{ owning_role }} revoke current grants;
+   {% endfor %}
+-- create RBAC AR hierarchy
+grant role {{ object_name }}_USG_AR to role {{ object_name }}_CTRL_AR; 
+grant role {{ object_name }}_CTRL_AR to role {{ object_name }}_FULL_AR; 
+grant role {{ object_name }}_FULL_AR to role {{ owning_role }};
+
+-- grants to warehouse ARs
+grant usage on warehouse {{ object_name }} to role {{ object_name }}_USG_AR;
+grant operate, monitor on warehouse {{ object_name }} to role {{ object_name }}_CTRL_AR;
+grant modify on warehouse {{ object_name }} to role {{ object_name }}_FULL_AR;
+{%- endif %}
+-- grant owning role to schemachange role
+grant role {{ owning_role }} to role  {{ env_var( 'SCHEMACHANGE_BASE_PREFIX') }}_{{ env_var('SCHEMACHANGE_ROLE') }};
+{%- endmacro %}
