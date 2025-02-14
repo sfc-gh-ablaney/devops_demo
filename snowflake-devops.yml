@@ -1,0 +1,53 @@
+name: snowflake-devops
+
+# Controls when the action will run. 
+on:
+  push:
+    branches:
+      - main
+      - preprod
+      - test
+      - dev
+    # paths:
+    #   - 'migrations/**'
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Use Python 3.8.x
+        uses: actions/setup-python@v2.2.1
+        with:
+          python-version: 3.8.x
+
+      - name: Run schemachange
+        env:
+          SNOWFLAKE_ENV: "${{vars.SNOWFLAKE_ENV}}"
+          SCHEMACHANGE_BASE_PREFIX: "${{secrets.SNOWFLAKE_TENANT_CODE}}"
+          SCHEMACHANGE_OBJ_PREFIX: "${SCHEMACHANGE_BASE_PREFIX}_${SNOWFLAKE_ENV}"
+          SCHEMACHANGE_DATABASE: ${SCHEMACHANGE_BASE_PREFIX}_COMMON_DB
+          SCHEMACHANGE_SCHEMA: SCHEMACHANGE
+          ADMIN_SELF_SERVICE_NAMESPACE: PLATFORM_COMMON_DB.SELF_SERVICE
+          SCHEMACHANGE_RM_QUOTA: 1500
+          SCHEMACHANGE_RM_ACTION: NOTIFY
+          SCHEMACHANGE_RM_FREQUENCY: WEEKLY
+          SCHEMACHANGE_DRY_RUN: ""
+        run: |
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          python --version
+          echo "Step 1: Installing schemachange"
+          pip install schemachange
+
+          echo "Step 2: Run script"
+          bash src/scripts/run_schemachange.sh
+          
+          echo "Step 3: Running schemachange"
+          schemachange -f $GITHUB_WORKSPACE/migrations -a $SF_ACCOUNT -u $SF_USERNAME -r $SF_ROLE -w $SF_WAREHOUSE -d $SF_DATABASE -c $SF_DATABASE.SCHEMACHANGE.CHANGE_HISTORY --create-change-history-table

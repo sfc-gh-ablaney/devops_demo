@@ -1,0 +1,504 @@
+image: python:3.9.16
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  paths:
+    - .cache/pip
+    - venv/
+
+before_script:
+  - python3 -V #Print out pythons version for debugging
+  - pip install virtualenv
+  - virtualenv venv
+  - source venv/bin/activate
+  - pip install schemachange
+
+stages:
+  - platform
+  - lab-test
+  - lab
+  - nonprod-test
+  - nonprod
+  - preprod-test
+  - preprod
+  - prod-test
+  - prod
+
+.base-schemachange-job:
+  variables:
+    SCHEMACHANGE_BASE_PREFIX: "${SNOWFLAKE_TENANT_CODE}"
+    SCHEMACHANGE_OBJ_PREFIX: "${SCHEMACHANGE_BASE_PREFIX}_${SNOWFLAKE_ENV}"
+    SCHEMACHANGE_DATABASE: ${SCHEMACHANGE_BASE_PREFIX}_COMMON_DB
+    SCHEMACHANGE_SCHEMA: SCHEMACHANGE
+    ADMIN_SELF_SERVICE_NAMESPACE: PLATFORM_COMMON_DB.SELF_SERVICE
+    SCHEMACHANGE_RM_QUOTA: 1500
+    SCHEMACHANGE_RM_ACTION: NOTIFY
+    SCHEMACHANGE_RM_FREQUENCY: WEEKLY
+    SCHEMACHANGE_DRY_RUN: ""
+  script: |
+    bash src/scripts/run_schemachange.sh
+
+.platform-base-deploy:
+  extends:
+  - .base-schemachange-job
+  when: manual
+  variables:
+ #   SCHEMACHANGE_ROOT_FOLDER: src/platform/${SNOWFLAKE_ACCOUNT_NAME}
+    SCHEMACHANGE_ROOT_FOLDER: src/platform
+    RUN_SCHEMACHANGE_INIT: 'TRUE'
+    RUN_PLATFORM_LEVEL: 'TRUE'
+    SCHEMACHANGE_TABLE: "CHANGE_HISTORY"
+
+.env-base-deploy:
+  extends:
+  - .base-schemachange-job
+  when: manual
+  variables:
+    SCHEMACHANGE_ROOT_FOLDER: src/environments
+    RUN_SCHEMACHANGE_INIT: 'TRUE'
+
+##############################################
+# Platform level jobs
+##############################################
+lab-platform-deploy:
+  stage: platform
+  needs: []
+  environment:
+    name: lab
+  extends: [".platform-base-deploy"]
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "lab")
+  variables:
+    SCHEMACHANGE_TABLE: "CHANGES_ACCOUNT"
+    SNOWFLAKE_ACCOUNT_NAME: lab
+    SNOWFLAKE_STORAGE_INTEGRATION_NAME: <PUT_HERE>
+    SNOWFLAKE_EXTERNAL_STAGE_URL: "'<cloud_provider>://<PUT_STORAGE_URI_HERE>/'"
+
+nonprod-platform-deploy:
+  stage: platform
+  needs: []
+  environment:
+    name: nonprod
+  extends: [".platform-base-deploy"]  
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "nonprod" || $CI_COMMIT_BRANCH == "develop")
+  variables:
+    SCHEMACHANGE_TABLE: "CHANGES_ACCOUNT"
+    SNOWFLAKE_ACCOUNT_NAME: nonprod
+    SNOWFLAKE_STORAGE_INTEGRATION_NAME: <PUT_HERE>
+    SNOWFLAKE_EXTERNAL_STAGE_URL: "'<cloud_provider>://<PUT_STORAGE_URI_HERE>/'"
+
+preprod-platform-deploy:
+  stage: platform
+  needs: []
+  environment:
+    name: preprod
+  extends: [".platform-base-deploy"]
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "preprod")
+  variables:
+    SCHEMACHANGE_TABLE: "CHANGES_ACCOUNT"
+    SNOWFLAKE_ACCOUNT_NAME: preprod
+    SNOWFLAKE_STORAGE_INTEGRATION_NAME: <PUT_HERE>
+    SNOWFLAKE_EXTERNAL_STAGE_URL: "'<cloud_provider>://<PUT_STORAGE_URI_HERE>/'"
+
+prod-platform-deploy:
+  stage: platform
+  needs: []
+  environment:
+    name: prod
+  extends: [".platform-base-deploy"]
+  rules:
+    - if: ($CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH)
+  variables:
+    SCHEMACHANGE_TABLE: "CHANGES_ACCOUNT"
+    SNOWFLAKE_ACCOUNT_NAME: prod
+    SNOWFLAKE_STORAGE_INTEGRATION_NAME: <PUT_HERE>
+    SNOWFLAKE_EXTERNAL_STAGE_URL: "'<cloud_provider>://<PUT_STORAGE_URI_HERE>/'"
+
+##############################################
+# Environment level stage - LAB
+##############################################
+lab-noenv-test:
+  stage: lab-test
+  needs: []
+  environment:
+    name: lab
+  when: manual
+  rules: 
+    - if: ($CI_COMMIT_BRANCH == "lab")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: lab
+    SNOWFLAKE_ENV: NOENV
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+    SCHEMACHANGE_DRY_RUN: --dry-run
+  extends: .env-base-deploy
+
+lab-dev1-test:
+  stage: lab-test
+  needs: []
+  environment:
+    name: lab
+  when: manual
+  rules: 
+    - if: ($CI_COMMIT_BRANCH == "lab")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: lab
+    SNOWFLAKE_ENV: DEV1
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+    SCHEMACHANGE_DRY_RUN: --dry-run
+  extends: .env-base-deploy
+
+lab-dev2-test:
+  stage: lab-test
+  needs: []
+  environment:
+    name: lab
+  when: manual
+  rules: 
+    - if: ($CI_COMMIT_BRANCH == "lab")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: lab
+    SNOWFLAKE_ENV: DEV2
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+    SCHEMACHANGE_DRY_RUN: --dry-run
+  extends: .env-base-deploy
+
+lab-sit1-test:
+  stage: lab-test
+  needs: []
+  environment:
+    name: lab
+  when: manual
+  rules: 
+    - if: ($CI_COMMIT_BRANCH == "lab")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: lab
+    SNOWFLAKE_ENV: SIT1
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+    SCHEMACHANGE_DRY_RUN: --dry-run
+  extends: .env-base-deploy
+
+lab-sit2-test:
+  stage: lab-test
+  needs: []
+  environment:
+    name: lab
+  when: manual
+  rules: 
+    - if: ($CI_COMMIT_BRANCH == "lab")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: lab
+    SNOWFLAKE_ENV: SIT2
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+    SCHEMACHANGE_DRY_RUN: --dry-run
+  extends: .env-base-deploy
+
+lab-noenv-deploy:
+  stage: lab
+  needs: [lab-noenv-test]
+  environment:
+    name: lab
+  when: manual
+  rules: 
+    - if: ($CI_COMMIT_BRANCH == "lab")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: lab
+    SNOWFLAKE_ENV: NOENV
+    RUN_SCHEMACHANGE_INIT: 'TRUE'
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+    SNOWFLAKE_STORAGE_INTEGRATION_NAME: <PUT_HERE>
+    SNOWFLAKE_EXTERNAL_STAGE_URL: "'<cloud_provider>://<PUT_STORAGE_URI_HERE>/'"
+  extends: .env-base-deploy
+
+lab-dev1-deploy:
+  stage: lab
+  needs: [lab-dev1-test]
+  environment:
+    name: lab
+  when: manual
+  rules: 
+    - if: ($CI_COMMIT_BRANCH == "lab")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: lab
+    SNOWFLAKE_ENV: DEV1
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+  extends: .env-base-deploy
+
+lab-dev2-deploy:
+  stage: lab
+  needs: [lab-dev2-test]
+  environment:
+    name: lab
+  when: manual
+  rules: 
+    - if: ($CI_COMMIT_BRANCH == "lab")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: lab
+    SNOWFLAKE_ENV: DEV2
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+  extends: .env-base-deploy
+
+lab-sit1-deploy:
+  stage: lab
+  needs: [lab-sit1-test]
+  environment:
+    name: lab
+  when: manual
+  rules: 
+    - if: ($CI_COMMIT_BRANCH == "lab")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: lab
+    SNOWFLAKE_ENV: SIT1
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+  extends: .env-base-deploy
+
+lab-sit2-deploy:
+  stage: lab
+  needs: [lab-sit2-test]
+  environment:
+    name: lab
+  when: manual
+  rules: 
+    - if: ($CI_COMMIT_BRANCH == "lab")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: lab
+    SNOWFLAKE_ENV: SIT2
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+  extends: .env-base-deploy
+
+##############################################
+# Environment level stage - NONPROD
+##############################################
+nonprod-noenv-test:
+  stage: nonprod-test
+  needs: []
+  environment:
+    name: nonprod
+  when: manual
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "nonprod" || $CI_COMMIT_BRANCH == "develop")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: nonprod
+    SNOWFLAKE_ENV: NOENV
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+    SNOWFLAKE_STORAGE_INTEGRATION_NAME: <PUT_HERE>
+    SNOWFLAKE_EXTERNAL_STAGE_URL: "'<cloud_provider>://<PUT_STORAGE_URI_HERE>/'"
+    SCHEMACHANGE_DRY_RUN: --dry-run
+  extends: .env-base-deploy
+
+nonprod-uat1-test:
+  stage: nonprod-test
+  needs: []
+  environment:
+    name: nonprod
+  when: manual
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "nonprod" || $CI_COMMIT_BRANCH == "develop")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: nonprod
+    SNOWFLAKE_ENV: UAT1
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+    SNOWFLAKE_STORAGE_INTEGRATION_NAME: <PUT_HERE>
+    SNOWFLAKE_EXTERNAL_STAGE_URL: "'<cloud_provider>://<PUT_STORAGE_URI_HERE>/'"
+    SCHEMACHANGE_DRY_RUN: --dry-run
+  extends: .env-base-deploy
+
+nonprod-uat2-test:
+  stage: nonprod-test
+  needs: []
+  environment:
+    name: nonprod
+  when: manual
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "nonprod" || $CI_COMMIT_BRANCH == "develop")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: nonprod
+    SNOWFLAKE_ENV: UAT2
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+    SNOWFLAKE_STORAGE_INTEGRATION_NAME: <PUT_HERE>
+    SNOWFLAKE_EXTERNAL_STAGE_URL: "'<cloud_provider>://<PUT_STORAGE_URI_HERE>/'"
+    SCHEMACHANGE_DRY_RUN: --dry-run
+  extends: .env-base-deploy
+
+nonprod-prf1-test:
+  stage: nonprod-test
+  needs: []
+  environment:
+    name: nonprod
+  when: manual
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "nonprod" || $CI_COMMIT_BRANCH == "develop")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: nonprod
+    SNOWFLAKE_ENV: PRF1
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+    SNOWFLAKE_STORAGE_INTEGRATION_NAME: <PUT_HERE>
+    SNOWFLAKE_EXTERNAL_STAGE_URL: "'<cloud_provider>://<PUT_STORAGE_URI_HERE>/'"
+    SCHEMACHANGE_DRY_RUN: --dry-run
+  extends: .env-base-deploy
+
+nonprod-prf2-test:
+  stage: nonprod-test
+  needs: []
+  environment:
+    name: nonprod
+  when: manual
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "nonprod" || $CI_COMMIT_BRANCH == "develop")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: nonprod
+    SNOWFLAKE_ENV: PRF2
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+    SNOWFLAKE_STORAGE_INTEGRATION_NAME: <PUT_HERE>
+    SNOWFLAKE_EXTERNAL_STAGE_URL: "'<cloud_provider>://<PUT_STORAGE_URI_HERE>/'"
+    SCHEMACHANGE_DRY_RUN: --dry-run
+  extends: .env-base-deploy
+
+nonprod-noenv-deploy:
+  stage: nonprod
+  needs: [nonprod-noenv-test]
+  environment:
+    name: nonprod
+  when: manual
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "nonprod" || $CI_COMMIT_BRANCH == "develop")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: nonprod
+    SNOWFLAKE_ENV: NOENV
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+    SNOWFLAKE_STORAGE_INTEGRATION_NAME: <PUT_HERE>
+    SNOWFLAKE_EXTERNAL_STAGE_URL: "'<cloud_provider>://<PUT_STORAGE_URI_HERE>/'"
+  extends: .env-base-deploy
+
+nonprod-uat1-deploy:
+  stage: nonprod
+  needs: [nonprod-uat1-test]
+  environment:
+    name: nonprod
+  when: manual
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "nonprod" || $CI_COMMIT_BRANCH == "develop")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: nonprod
+    SNOWFLAKE_ENV: UAT1
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+  extends: .env-base-deploy
+
+nonprod-uat2-deploy:
+  stage: nonprod
+  needs: [nonprod-uat2-test]
+  environment:
+    name: nonprod
+  when: manual
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "nonprod" || $CI_COMMIT_BRANCH == "develop")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: nonprod
+    SNOWFLAKE_ENV: UAT2
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+  extends: .env-base-deploy
+
+nonprod-prf1-deploy:
+  stage: nonprod
+  needs: [nonprod-prf1-test]
+  environment:
+    name: nonprod
+  when: manual
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "nonprod" || $CI_COMMIT_BRANCH == "develop")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: nonprod
+    SNOWFLAKE_ENV: PRF1
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+  extends: .env-base-deploy
+
+nonprod-prf2-deploy:
+  stage: nonprod
+  needs: [nonprod-prf2-test]
+  environment:
+    name: nonprod
+  when: manual
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "nonprod" || $CI_COMMIT_BRANCH == "develop")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: nonprod
+    SNOWFLAKE_ENV: PRF2
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+  extends: .env-base-deploy
+
+##############################################
+# Environment level stage - PREPROD
+##############################################
+# For prod and preprod - there will be a connection URL so no need for
+# separate DR jobs, we will use the connection URL and client redirect
+preprod-test:
+  stage: preprod-test
+  needs: []
+  when: manual
+  environment:
+    name: preprod
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "preprod")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: preprod
+    SNOWFLAKE_ENV: NOENV
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+    SNOWFLAKE_STORAGE_INTEGRATION_NAME: <PUT_HERE>
+    SNOWFLAKE_EXTERNAL_STAGE_URL: "'<cloud_provider>://<PUT_STORAGE_URI_HERE>/'"
+    SCHEMACHANGE_DRY_RUN: --dry-run
+  extends: .env-base-deploy
+
+preprod-deploy:
+  stage: preprod
+  needs: [preprod-test]
+  when: manual
+  environment:
+    name: preprod
+  rules:
+    - if: ($CI_COMMIT_BRANCH == "preprod")
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: preprod
+    SNOWFLAKE_ENV: NOENV
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+    SNOWFLAKE_STORAGE_INTEGRATION_NAME: <PUT_HERE>
+    SNOWFLAKE_EXTERNAL_STAGE_URL: "'<cloud_provider>://<PUT_STORAGE_URI_HERE>/'"
+  extends: .env-base-deploy
+
+##############################################
+# Environment level stage - PROD
+##############################################
+prod-test:
+  stage: prod-test
+  needs: []
+  when: manual
+  environment:
+    name: prod
+  rules:
+    - if: ($CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH)
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: prod
+    SNOWFLAKE_ENV: NOENV
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+    SNOWFLAKE_STORAGE_INTEGRATION_NAME: <PUT_HERE>
+    SNOWFLAKE_EXTERNAL_STAGE_URL: "'<cloud_provider>://<PUT_STORAGE_URI_HERE>/'"
+    SCHEMACHANGE_DRY_RUN: --dry-run
+  extends: .env-base-deploy
+
+prod-deploy:
+  stage: prod
+  needs: [prod-test]
+  when: manual
+  environment:
+    name: prod
+  rules:
+    - if: ($CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH)
+  variables:
+    SNOWFLAKE_ACCOUNT_NAME: prod
+    SNOWFLAKE_ENV: NOENV
+    SCHEMACHANGE_TABLE: CHANGE_HISTORY_${SNOWFLAKE_ENV}
+    SNOWFLAKE_STORAGE_INTEGRATION_NAME: <PUT_HERE>
+    SNOWFLAKE_EXTERNAL_STAGE_URL: "'<cloud_provider>://<PUT_STORAGE_URI_HERE>/'"
+  extends: .env-base-deploy
