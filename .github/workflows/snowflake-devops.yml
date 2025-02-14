@@ -43,10 +43,10 @@ jobs:
         run: |
           echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
           python --version
-          echo "Step 1: Installing schemachange"
+          echo "   Step 1: Installing schemachange"
           pip install schemachange
 
-          echo "Step 2: Run script"
-          ./src/scripts/run_schemachange.sh
+          echo "   Step 2: Run script"
+          bash ./src/scripts/run_schemachange.sh
           
          
